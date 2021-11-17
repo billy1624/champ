@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use libp2p::futures::SinkExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio_stream::StreamExt;
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
@@ -12,15 +12,6 @@ pub struct Connection {
 
 impl Connection {
     #[allow(dead_code)]
-    //waits for an incoming connection on address
-    pub async fn listen<T: ToSocketAddrs>(address: T) -> Result<Connection, Box<dyn std::error::Error>> {
-        let listener = TcpListener::bind(address).await?;
-        // The second item contains the IP and port of the new connection.
-        let (stream, _) = listener.accept().await?;
-        Ok(Connection::connection_from_stream(stream))
-    }
-
-    #[allow(dead_code)]
     //establishes a connection by connecting to address
     pub async fn connect<T: ToSocketAddrs>(address: T) -> Result<Connection, Box<dyn std::error::Error>> {
         let stream = TcpStream::connect(address).await?;
@@ -28,7 +19,7 @@ impl Connection {
     }
 
     //creates a Connection from the TcpStream,
-    fn connection_from_stream(stream: TcpStream) -> Connection {
+    pub fn connection_from_stream(stream: TcpStream) -> Connection {
         let (read_half, write_half) = stream.into_split();
         Connection {
             framed_read: FramedRead::new(read_half, LengthDelimitedCodec::new()),
@@ -61,22 +52,6 @@ mod tests {
     use super::*;
     use libp2p::futures::StreamExt;
     use serial_test::serial;
-
-    #[tokio::test]
-    #[serial]
-    //test passes when TcpStream::connect yields a TcpStream value and therefore succeeds
-    async fn listen_for_connection() {
-        let address = "127.0.0.1:7899";
-        let handle1 = tokio::spawn(async move {
-            Connection::listen(address).await.expect("failed listening for the connection");
-        });
-
-        let handle2 = tokio::spawn(async move { TcpStream::connect(address).await.expect("failed connecting") });
-
-        handle1.await.unwrap();
-        let stream = handle2.await;
-        assert!(stream.is_ok())
-    }
 
     #[tokio::test]
     #[serial]
