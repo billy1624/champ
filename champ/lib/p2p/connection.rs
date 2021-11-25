@@ -112,8 +112,8 @@ mod tests {
             framed.flush().await.unwrap(); //this flush is probably unnecessary
         });
 
-        let result = read_handle.await.unwrap();
         write_handle.await.unwrap();
+        let result = read_handle.await.unwrap();
 
         assert_eq!(expected, result.to_owned())
     }
