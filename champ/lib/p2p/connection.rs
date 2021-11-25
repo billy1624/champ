@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use libp2p::futures::SinkExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpStream, ToSocketAddrs};
+use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_stream::StreamExt;
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
@@ -11,15 +11,20 @@ pub struct Connection {
 }
 
 impl Connection {
-    #[allow(dead_code)]
     //establishes a connection by connecting to address
+    pub async fn accept(listener: &TcpListener) -> Result<Connection, Box<dyn std::error::Error>> {
+        let (stream, _) = listener.accept().await?;
+        Ok(Connection::connection_from_stream(stream))
+    }
+
+    #[allow(dead_code)]
     pub async fn connect<T: ToSocketAddrs>(address: T) -> Result<Connection, Box<dyn std::error::Error>> {
         let stream = TcpStream::connect(address).await?;
         Ok(Connection::connection_from_stream(stream))
     }
 
     //creates a Connection from the TcpStream,
-    pub fn connection_from_stream(stream: TcpStream) -> Connection {
+    fn connection_from_stream(stream: TcpStream) -> Connection {
         let (read_half, write_half) = stream.into_split();
         Connection {
             framed_read: FramedRead::new(read_half, LengthDelimitedCodec::new()),
@@ -52,6 +57,24 @@ mod tests {
     use super::*;
     use libp2p::futures::StreamExt;
     use serial_test::serial;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    #[serial]
+    //test passes when TcpStream::connect yields a TcpStream value and therefore succeeds
+    async fn listen_for_connection() {
+        let address = "127.0.0.1:7899";
+        let handle1 = tokio::spawn(async move {
+            let listener = TcpListener::bind(address).await.expect("couldn't bind socket to address");
+            Connection::accept(&listener).await.expect("failed listening for the connection");
+        });
+
+        let handle2 = tokio::spawn(async move { TcpStream::connect(address).await.expect("failed connecting") });
+
+        handle1.await.unwrap();
+        let stream = handle2.await;
+        assert!(stream.is_ok())
+    }
 
     #[tokio::test]
     #[serial]
@@ -60,8 +83,10 @@ mod tests {
         let address = "127.0.0.1:7890";
         let other_address = "127.0.0.1:7891";
         tokio::spawn(async move {
-            Connection::listen(address).await.expect("failed listening for the connection");
+            let listener = TcpListener::bind(address).await.expect("couldn't bind socket to address");
+            Connection::accept(&listener).await.expect("failed listening for the connection");
         });
+
         let result = TcpStream::connect(other_address).await; //.expect("failed connecting");
         assert!(result.is_err())
     }
@@ -75,7 +100,8 @@ mod tests {
         let expected = buffer.clone();
 
         let read_handle = tokio::spawn(async move {
-            let mut connection = Connection::listen(address).await.unwrap();
+            let listener = TcpListener::bind(address).await.expect("couldn't bind socket to address");
+            let mut connection = Connection::accept(&listener).await.unwrap();
             connection.read().await
         });
 

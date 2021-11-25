@@ -2,6 +2,7 @@ use crate::connection::Connection;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 
 mod connection;
 
@@ -32,10 +33,11 @@ impl P2pClient {
             loop {
                 let mut connections = connections.lock().await;
                 if connections.len() >= usize::from(config.max_connections) {
+                    sleep(Duration::from_millis(1000)).await;
                     continue;
                 }
-                let (stream, _) = listener.accept().await?;
-                connections.push(Connection::connection_from_stream(stream))
+                let connection = Connection::accept(&listener).await.expect("Could'nt accept connection");
+                connections.push(connection)
             }
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });
@@ -58,12 +60,11 @@ pub struct P2pConfig {
 mod tests {
     use super::*;
     use serial_test::serial;
-    use tokio::net::TcpStream;
 
     #[tokio::test]
     #[serial]
     //test passes when TcpStream::connect yields a TcpStream value and therefore succeeds
-    async fn listen_for_connection() {
+    async fn listen_for_connections() {
         let max_number_connections = 5;
         let listening_port = "127.0.0.1:7899";
         let config = P2pConfig {
@@ -74,14 +75,14 @@ mod tests {
         };
 
         tokio::spawn(async move {
-            let mut client = P2pClient::new(config);
+            let client = P2pClient::new(config);
             client.start().await.expect("failed listening for the connection");
         });
 
         let mut list = vec![];
         for i in 0..max_number_connections {
             let stream = tokio::spawn(async move {
-                TcpStream::connect(listening_port.clone()).await.expect(&*format!("failed connecting Nr. {}", i))
+                Connection::connect(listening_port.clone()).await.expect(&*format!("failed connecting Nr. {}", i))
             });
             list.push(stream.await.expect("expected TcpStream"));
         }
