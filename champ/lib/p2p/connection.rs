@@ -57,22 +57,26 @@ mod tests {
     use super::*;
     use libp2p::futures::StreamExt;
     use serial_test::serial;
+    use tokio::join;
     use tokio::net::TcpListener;
+    use tokio::time::{sleep, Duration};
 
     #[tokio::test]
     #[serial]
     //test passes when TcpStream::connect yields a TcpStream value and therefore succeeds
     async fn listen_for_connection() {
         let address = "127.0.0.1:7899";
-        let handle1 = tokio::spawn(async move {
+        let listen_handle = tokio::spawn(async move {
             let listener = TcpListener::bind(address).await.expect("couldn't bind socket to address");
             Connection::accept(&listener).await.expect("failed listening for the connection");
         });
 
-        let handle2 = tokio::spawn(async move { TcpStream::connect(address).await.expect("failed connecting") });
+        let connect_handle = tokio::spawn(async move {
+            sleep(Duration::from_millis(1000)).await;
+            tokio::spawn(async move { TcpStream::connect(address).await.expect("failed connecting") });
+        });
 
-        handle1.await.unwrap();
-        let stream = handle2.await;
+        let (_, stream) = join!(listen_handle, connect_handle);
         assert!(stream.is_ok())
     }
 
@@ -82,12 +86,15 @@ mod tests {
     async fn listen_for_wrong_connection() {
         let address = "127.0.0.1:7890";
         let other_address = "127.0.0.1:7891";
+        let listener = TcpListener::bind(address).await.expect("couldn't bind socket to address");
+
         tokio::spawn(async move {
-            let listener = TcpListener::bind(address).await.expect("couldn't bind socket to address");
             Connection::accept(&listener).await.expect("failed listening for the connection");
         });
 
-        let result = TcpStream::connect(other_address).await; //.expect("failed connecting");
+        let connect_handle = tokio::spawn(async move { TcpStream::connect(other_address).await });
+
+        let result = connect_handle.await.unwrap();
         assert!(result.is_err())
     }
 
@@ -112,10 +119,8 @@ mod tests {
             framed.flush().await.unwrap(); //this flush is probably unnecessary
         });
 
-        write_handle.await.unwrap();
-        let result = read_handle.await.unwrap();
-
-        assert_eq!(expected, result.to_owned())
+        let (_, result) = join!(write_handle, read_handle);
+        assert_eq!(expected, result.expect("no bytes read").to_owned())
     }
 
     #[tokio::test]
@@ -137,9 +142,7 @@ mod tests {
             connection.write(buffer).await.unwrap()
         });
 
-        let result = read_handle.await.unwrap();
-        write_handle.await.unwrap();
-
-        assert_eq!(expected, result.to_owned())
+        let (_, result) = join!(write_handle, read_handle);
+        assert_eq!(expected, result.expect("no bytes read").to_owned())
     }
 }
