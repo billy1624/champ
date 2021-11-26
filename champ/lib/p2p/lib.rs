@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
+use tokio::join;
 
 mod connection;
 
@@ -26,7 +27,7 @@ impl P2pClient {
         let connections = self.connections.clone();
         let config = self.config.clone();
 
-        let handle = tokio::spawn(async move {
+        let _handle = tokio::spawn(async move {
             let listener = TcpListener::bind(&config.listening_port).await?;
             //wait for connections and only accept when below the limit
             //make this more efficient by starting to listen only when below the limit
@@ -42,7 +43,7 @@ impl P2pClient {
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });
 
-        let _result = handle.await?;
+        //let _result = handle.await?;
         Ok(())
     }
 }
@@ -74,19 +75,24 @@ mod tests {
             is_delegate: false,
         };
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let client = P2pClient::new(config);
             client.start().await.expect("failed listening for the connection");
         });
 
-        let mut list = vec![];
-        for i in 0..max_number_connections {
-            let stream = tokio::spawn(async move {
-                Connection::connect(listening_port.clone()).await.expect(&*format!("failed connecting Nr. {}", i))
-            });
-            list.push(stream.await.expect("expected TcpStream"));
-        }
+        let handle2 = tokio::spawn( async move {
+            let mut list = vec![];
+            for i in 0..max_number_connections {
+                let stream = tokio::spawn(async move {
+                    Connection::connect(listening_port.clone()).await.expect(&*format!("failed connecting Nr. {}", i))
+                });
+                list.push(stream.await.expect("expected TcpStream"));
+            }
+            list
+        });
 
+        let (_, result) = join!(handle, handle2);
+        let list = result.expect("didn't return list");
         assert!(list.len() == max_number_connections.into())
     }
 }
