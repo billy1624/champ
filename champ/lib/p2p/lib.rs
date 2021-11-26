@@ -3,7 +3,6 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
-use tokio::join;
 
 mod connection;
 
@@ -25,7 +24,7 @@ impl P2pClient {
     #[allow(unreachable_code)]
     pub async fn start(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let connections = self.connections.clone();
-        let config = self.config.clone();
+        let config = self.config;
 
         let _handle = tokio::spawn(async move {
             let listener = TcpListener::bind(&config.listening_port).await?;
@@ -61,6 +60,7 @@ pub struct P2pConfig {
 mod tests {
     use super::*;
     use serial_test::serial;
+    use tokio::join;
 
     #[tokio::test]
     #[serial]
@@ -80,7 +80,7 @@ mod tests {
             client.start().await.expect("failed listening for the connection");
         });
 
-        let handle2 = tokio::spawn( async move {
+        let handle2 = tokio::spawn(async move {
             let mut list = vec![];
             for i in 0..max_number_connections {
                 let stream = tokio::spawn(async move {
